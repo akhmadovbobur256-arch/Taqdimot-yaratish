@@ -1,0 +1,2 @@
+# Taqdimot-yaratish
+Taqdimot 
