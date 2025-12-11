@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mobil Slayd Yaratuvchi</title>
+<style>
+  :root{--bg:#f5f7fb;--accent:#0b84ff}
+  html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);-webkit-font-smoothing:antialiased}
+  .app{max-width:1100px;margin:12px auto;padding:12px;display:flex;gap:12px;flex-direction:column}
+  .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button{background:var(--accent);color:#fff;border:none;padding:10px 12px;border-radius:8px;font-size:14px;cursor:pointer}
+  button.ghost{background:#fff;color:#111;border:1px solid #ddd}
+  .flex{display:flex;gap:12px;align-items:center}
+  .sidebar{display:flex;gap:8px;overflow:auto;padding:8px 0}
+  .thumb{min-width:120px;height:70px;border-radius:8px;background:#fff;border:1px dashed #ddd;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;padding:6px;box-sizing:border-box}
+  .thumb.active{outline:3px solid rgba(11,132,255,.15)}
+  .editor{background:#fff;border-radius:12px;padding:12px;box-shadow:0 6px 20px rgba(0,0,0,.06);display:flex;gap:12px;flex-direction:column}
+  .stage{height:480px;border-radius:8px;border:1px solid #eee;background:#111;color:#fff;position:relative;overflow:hidden}
+  .slide{width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:28px;box-sizing:border-box;position:relative}
+  .content{width:100%;height:100%;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:10px}
+  .content [contenteditable]{min-height:30px;outline:none}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  input[type="file"]{display:none}
+  .small{font-size:13px;padding:8px 10px}
+  .presentation{position:fixed;inset:0;background:#000;display:none;align-items:center;justify-content:center;z-index:9999}
+  .presentation .slide{width:100%;height:100%;padding:40px}
+  .center{align-items:center;justify-content:center}
+  @media (max-width:600px){
+    .stage{height:360px}
+    .thumb{min-width:92px;height:64px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div class="flex">
+      <button id="addSlide">+ Yangi slayd</button>
+      <button id="removeSlide" class="ghost">O‘chirish</button>
+      <label class="ghost small" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+        <span>Fon rasm</span>
+        <input id="bgUpload" type="file" accept="image/*">
+      </label>
+    </div>
+
+    <div style="margin-left:auto" class="flex">
+      <button id="downloadHTML" class="ghost">Yuklab olish (HTML)</button>
+      <button id="present">Presentation</button>
+    </div>
+  </div>
+
+  <div class="editor">
+    <div class="sidebar" id="thumbs"></div>
+
+    <div style="display:flex;gap:12px;flex-direction:column">
+      <div class="stage" id="stage">
+        <!-- current slide will render here -->
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
+        <div class="controls">
+          <button id="addText" class="small ghost">Matn qo'shish</button>
+          <button id="addTitle" class="small ghost">Sarlavha</button>
+          <button id="clearBg" class="small ghost">Fon olib tashlash</button>
+        </div>
+
+        <div style="display:flex;gap:8px">
+          <button id="prev" class="small ghost">◀</button>
+          <div id="idx" style="min-width:90px;text-align:center">Slayd 1 / 1</div>
+          <button id="next" class="small ghost">▶</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- presentation overlay -->
+<div id="presentation" class="presentation center" tabindex="0"></div>
+
+<script>
+/* Minimal client-side slide editor (no server). Slides stored in memory; to persist save HTML. */
+const thumbs = document.getElementById('thumbs');
+const stage = document.getElementById('stage');
+const idx = document.getElementById('idx');
+const presentation = document.getElementById('presentation');
+
+let slides = []; // each slide: {html: '', bg: dataURL|null}
+let current = 0;
+
+function createEmptySlide(){
+  return {
+    html: `<div class="content">
+             <div contenteditable="true" style="font-size:28px;font-weight:600">Yangi sarlavha</div>
+             <div contenteditable="true" style="font-size:16px;opacity:.9">Bu yerga matn kiriting...</div>
+           </div>`,
+    bg: null
+  };
+}
+
+function renderThumbs(){
+  thumbs.innerHTML = '';
+  slides.forEach((s,i)=>{
+    const d = document.createElement('div');
+    d.className = 'thumb' + (i===current?' active':'');
+    d.dataset.i = i;
+    // make small preview by using innerHTML; background if exists
+    d.innerHTML = s.html;
+    if(s.bg) d.style.backgroundImage = `url(${s.bg})`, d.style.backgroundSize='cover';
+    d.addEventListener('click', ()=>{ current = i; render();});
+    thumbs.appendChild(d);
+  });
+}
+
+function render(){
+  if(slides.length===0){
+    slides.push(createEmptySlide());
+    current = 0;
+  }
+  // render stage
+  const s = slides[current];
+  stage.innerHTML = '';
+  const slideEl = document.createElement('div');
+  slideEl.className = 'slide';
+  if(s.bg) slideEl.style.backgroundImage = `url(${s.bg})`, slideEl.style.backgroundSize='cover', slideEl.style.backgroundPosition='center';
+  slideEl.innerHTML = s.html;
+  // make editable elements update model on input
+  slideEl.querySelectorAll('[contenteditable]').forEach(el=>{
+    el.addEventListener('input', ()=>{
+      slides[current].html = slideEl.innerHTML;
+      renderThumbs();
+    });
+  });
+  stage.appendChild(slideEl);
+
+  idx.textContent = `Slayd ${current+1} / ${slides.length}`;
+  renderThumbs();
+}
+
+/* Controls */
+document.getElementById('addSlide').addEventListener('click', ()=>{
+  slides.push(createEmptySlide());
+  current = slides.length-1;
+  render();
+});
+document.getElementById('removeSlide').addEventListener('click', ()=>{
+  if(slides.length<=1){ alert('Tugadi — kamida bitta slayd bo‘lishi kerak'); return; }
+  if(!confirm('Haqiqatan ham o‘chirasizmi?')) return;
+  slides.splice(current,1);
+  if(current >= slides.length) current = slides.length-1;
+  render();
+});
+document.getElementById('next').addEventListener('click', ()=>{ if(current < slides.length-1) current++; render();});
+document.getElementById('prev').addEventListener('click', ()=>{ if(current > 0) current--; render();});
+document.getElementById('addText').addEventListener('click', ()=>{
+  const s = slides[current];
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('contenteditable','true');
+  wrapper.textContent = 'Yangi matn';
+  wrapper.style.minHeight='28px';
+  wrapper.style.fontSize='16px';
+  // append to slide html
+  const temp = document.createElement('div');
+  temp.innerHTML = s.html;
+  temp.appendChild(wrapper);
+  s.html = temp.innerHTML;
+  render();
+});
+document.getElementById('addTitle').addEventListener('click', ()=>{
+  const s = slides[current];
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('contenteditable','true');
+  wrapper.textContent = 'Sarlavha';
+  wrapper.style.fontSize='28px';
+  wrapper.style.fontWeight='600';
+  const temp = document.createElement('div');
+  temp.innerHTML = s.html;
+  temp.prepend(wrapper);
+  s.html = temp.innerHTML;
+  render();
+});
+document.getElementById('bgUpload').addEventListener('change', (ev)=>{
+  const f = ev.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = e=>{ slides[current].bg = e.target.result; render(); };
+  r.readAsDataURL(f);
+});
+document.getElementById('clearBg').addEventListener('click', ()=>{
+  slides[current].bg = null; render();
+});
+
+/* Presentation mode */
+document.getElementById('present').addEventListener('click', ()=>{
+  if(slides.length===0) return;
+  presentation.style.display='flex';
+  showPresentationSlide(0);
+  presentation.focus();
+});
+function showPresentationSlide(i){
+  presentation.innerHTML = '';
+  const s = slides[i];
+  const sel = document.createElement('div');
+  sel.className='slide';
+  sel.style.width='100%'; sel.style.height='100%';
+  if(s.bg) sel.style.backgroundImage = `url(${s.bg})`, sel.style.backgroundSize='cover', sel.style.backgroundPosition='center';
+  sel.innerHTML = s.html;
+  presentation.appendChild(sel);
+  // navigate with tap
+  presentation.onclick = ()=> {
+    i++;
+    if(i>=slides.length){ presentation.style.display='none'; return; }
+    showPresentationSlide(i);
+  };
+  // keyboard
+  presentation.onkeydown = (ev)=> {
+    if(ev.key==='ArrowRight' || ev.key===' ') { i = Math.min(slides.length-1, i+1); showPresentationSlide(i); }
+    if(ev.key==='ArrowLeft') { i = Math.max(0, i-1); showPresentationSlide(i); }
+    if(ev.key==='Escape') presentation.style.display='none';
+  };
+}
+
+/* Download HTML: embed slides into single standalone HTML */
+document.getElementById('downloadHTML').addEventListener('click', ()=>{
+  const standalone = generateStandaloneHTML();
+  const blob = new Blob([standalone], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'presentation.html'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+/* Build standalone HTML */
+function generateStandaloneHTML(){
+  // minimal styles for viewing
+  const style = `
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#111;color:#fff}
+    .deck{display:flex;flex-direction:column;gap:4px}
+    .slide{width:100%;min-height:80vh;display:flex;align-items:center;justify-content:center;padding:40px;box-sizing:border-box}
+  `;
+  let slidesHTML = slides.map(s=>{
+    const bg = s.bg ? `style="background-image:url(${s.bg});background-size:cover;background-position:center"` : '';
+    return `<section class="slide" ${bg}>${s.html}</section>`;
+  }).join('\n');
+
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Presentation</title><style>${style}</style></head><body><div class="deck">${slidesHTML}</div></body></html>`;
+}
+
+/* init */
+slides.push(createEmptySlide());
+render();
+
+</script>
+</body>
+</html>
